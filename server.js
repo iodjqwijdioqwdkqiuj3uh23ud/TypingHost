@@ -35,7 +35,7 @@ app.post('/api/file', (req, res) => {
 app.get('/api/env', (req, res) => {
   const envPath = path.join(PROJECTS_DIR, '.env');
   if (!fs.existsSync(envPath)) return res.json({ env: {} });
-  
+  
   const content = fs.readFileSync(envPath, 'utf-8');
   const env = {};
   content.split('\n').forEach(line => {
@@ -193,7 +193,7 @@ app.get('/', (req, res) => {
       const data = await res.json();
       const listEl = document.getElementById('fileList');
       listEl.innerHTML = '';
-      
+      
       data.files.forEach(f => {
         listEl.innerHTML += \`
           <div onclick="openFile('\${f}')" class="cursor-pointer p-2 rounded hover:bg-slate-800 text-slate-300 text-xs flex items-center gap-2 truncate">
@@ -228,7 +228,7 @@ app.get('/', (req, res) => {
       const data = await res.json();
       const container = document.getElementById('envContainer');
       container.innerHTML = '';
-      
+      
       Object.entries(data.env || {}).forEach(([k, v]) => {
         addEnvRow(k, v);
       });
@@ -296,4 +296,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
