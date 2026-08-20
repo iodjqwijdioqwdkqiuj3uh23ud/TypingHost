@@ -1,21 +1,40 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 
 const app = express();
 app.use(express.json());
 
 const PROJECTS_DIR = path.join(__dirname, 'user_projects');
-if (!fs.existsSync(PROJECTS_DIR)) fs.mkdirSync(PROJECTS_DIR);
+if (!fs.existsSync(PROJECTS_DIR)) {
+  fs.mkdirSync(PROJECTS_DIR, { recursive: true });
+}
+
+const packageJsonPath = path.join(PROJECTS_DIR, 'package.json');
+if (!fs.existsSync(packageJsonPath)) {
+  fs.writeFileSync(packageJsonPath, JSON.stringify({
+    name: "user-project",
+    version: "1.0.0",
+    main: "index.js",
+    dependencies: {}
+  }, null, 2), 'utf-8');
+}
+
+const defaultIndexPath = path.join(PROJECTS_DIR, 'index.js');
+if (!fs.existsSync(defaultIndexPath)) {
+  fs.writeFileSync(defaultIndexPath, 'console.log("Hello TypingHost!");', 'utf-8');
+}
 
 const runningProcesses = {};
 const processLogs = {};
+let terminalLogs = ['[시스템] 웹 터미널이 준비되었습니다. npm 명령어 등을 입력하세요.\n'];
 
 app.get('/api/files', (req, res) => {
   fs.readdir(PROJECTS_DIR, (err, files) => {
     if (err) return res.status(500).json({ error: '파일 목록을 불러오지 못했습니다.' });
-    res.json({ files });
+    const visibleFiles = files.filter(f => !f.startsWith('.'));
+    res.json({ files: visibleFiles });
   });
 });
 
@@ -28,15 +47,16 @@ app.get('/api/file', (req, res) => {
 
 app.post('/api/file', (req, res) => {
   const { filename, content } = req.body;
+  if (!filename) return res.status(400).json({ error: '파일 이름을 입력하세요.' });
   const filePath = path.join(PROJECTS_DIR, filename);
-  fs.writeFileSync(filePath, content, 'utf-8');
+  fs.writeFileSync(filePath, content || '', 'utf-8');
   res.json({ success: true, message: '파일이 성공적으로 저장되었습니다.' });
 });
 
 app.get('/api/env', (req, res) => {
   const envPath = path.join(PROJECTS_DIR, '.env');
   if (!fs.existsSync(envPath)) return res.json({ env: {} });
-  
+  
   const content = fs.readFileSync(envPath, 'utf-8');
   const env = {};
   content.split('\n').forEach(line => {
@@ -117,6 +137,26 @@ app.get('/api/process/logs', (req, res) => {
   res.json({ logs });
 });
 
+app.post('/api/terminal/exec', (req, res) => {
+  const { command } = req.body;
+  if (!command) return res.status(400).json({ error: '명령어를 입력하세요.' });
+
+  terminalLogs.push(`$ ${command}\n`);
+
+  exec(command, { cwd: PROJECTS_DIR }, (error, stdout, stderr) => {
+    if (stdout) terminalLogs.push(stdout);
+    if (stderr) terminalLogs.push(stderr);
+    if (error) terminalLogs.push(`[터미널 에러] ${error.message}\n`);
+    terminalLogs.push(`[시스템] 명령어 실행 완료\n`);
+  });
+
+  res.json({ success: true, message: '명령어가 실행 요청되었습니다.' });
+});
+
+app.get('/api/terminal/logs', (req, res) => {
+  res.json({ logs: terminalLogs });
+});
+
 app.get('/', (req, res) => {
   res.send(`
 <!DOCTYPE html>
@@ -183,9 +223,14 @@ app.get('/', (req, res) => {
         <h2 class="text-lg font-bold text-slate-200 flex items-center gap-2">
           <i class="fa-solid fa-folder-open text-sky-400"></i> 파일 관리자
         </h2>
-        <button onclick="saveFile()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition">
-          <i class="fa-solid fa-floppy-disk"></i> 저장
-        </button>
+        <div class="flex gap-2">
+          <button onclick="createNewFile()" class="bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-file-circle-plus"></i> 새 파일
+          </button>
+          <button onclick="saveFile()" class="bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition">
+            <i class="fa-solid fa-floppy-disk"></i> 저장
+          </button>
+        </div>
       </div>
 
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4 flex-1">
@@ -194,23 +239,40 @@ app.get('/', (req, res) => {
           <div id="fileList" class="space-y-1 text-sm"></div>
         </div>
         <div class="md:col-span-3 flex flex-col">
-          <input type="text" id="currentFileName" class="bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono p-2 rounded-t-lg border-b-0 outline-none" readonly value="파일을 선택하세요">
-          <textarea id="fileEditor" class="w-full h-80 bg-slate-950 text-slate-200 border border-slate-700 font-mono text-xs p-3 rounded-b-lg outline-none resize-none focus:border-indigo-500" placeholder="// 편집할 파일을 선택하거나 작성하세요..."></textarea>
+          <input type="text" id="currentFileName" class="bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono p-2 rounded-t-lg border-b-0 outline-none" placeholder="선택되거나 작성 중인 파일명 (예: index.js)">
+          <textarea id="fileEditor" class="w-full h-80 bg-slate-950 text-slate-200 border border-slate-700 font-mono text-xs p-3 rounded-b-lg outline-none resize-none focus:border-indigo-500" placeholder="선택한 파일 내용이 표시되거나 새 코드를 입력하세요..."></textarea>
         </div>
       </div>
     </div>
   </div>
 
-  <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-5 shadow-lg">
-    <div class="flex justify-between items-center mb-3">
-      <h2 class="text-lg font-bold text-slate-200 flex items-center gap-2">
-        <i class="fa-solid fa-terminal text-emerald-400"></i> 실시간 실행 로그
-      </h2>
-      <button onclick="fetchLogs()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs py-1 px-3 rounded-lg transition">
-        로그 새로고침
-      </button>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-5 shadow-lg">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="text-lg font-bold text-slate-200 flex items-center gap-2">
+          <i class="fa-solid fa-terminal text-emerald-400"></i> 웹 터미널 (라이브러리 설치)
+        </h2>
+      </div>
+      <pre id="terminalConsole" class="w-full h-44 bg-slate-950 border border-slate-700 rounded-t-lg p-3 font-mono text-xs text-sky-400 overflow-y-auto whitespace-pre-wrap">[시스템] 웹 터미널 준비 완료...</pre>
+      <div class="flex border border-t-0 border-slate-700 rounded-b-lg overflow-hidden">
+        <input type="text" id="terminalInput" class="w-full bg-slate-900 text-slate-200 font-mono text-xs p-2.5 outline-none" placeholder="npm install discord.js-selfbot-v13 입력 후 엔터..." onkeydown="if(event.key==='Enter') runTerminalCommand()">
+        <button onclick="runTerminalCommand()" class="bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold px-4 transition">
+          실행
+        </button>
+      </div>
     </div>
-    <pre id="logConsole" class="w-full h-48 bg-slate-950 border border-slate-700 rounded-lg p-3 font-mono text-xs text-emerald-400 overflow-y-auto whitespace-pre-wrap">[시스템] 로그 수신 대기 중...</pre>
+
+    <div class="bg-slate-800/80 border border-slate-700 rounded-xl p-5 shadow-lg">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="text-lg font-bold text-slate-200 flex items-center gap-2">
+          <i class="fa-solid fa-scroll text-amber-400"></i> 실시간 실행 로그
+        </h2>
+        <button onclick="fetchLogs()" class="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs py-1 px-3 rounded-lg transition">
+          새로고침
+        </button>
+      </div>
+      <pre id="logConsole" class="w-full h-52 bg-slate-950 border border-slate-700 rounded-lg p-3 font-mono text-xs text-emerald-400 overflow-y-auto whitespace-pre-wrap">[시스템] 로그 수신 대기 중...</pre>
+    </div>
   </div>
 
   <script>
@@ -225,13 +287,16 @@ app.get('/', (req, res) => {
 
     function startLogPolling() {
       if (logInterval) clearInterval(logInterval);
-      logInterval = setInterval(fetchLogs, 2000);
+      logInterval = setInterval(() => {
+        fetchLogs();
+        fetchTerminalLogs();
+      }, 2000);
     }
 
     async function fetchLogs() {
       const mainFile = document.getElementById('mainFile').value;
       if (!mainFile) return;
-      
+      
       try {
         const res = await fetch(\`/api/process/logs?mainFile=\${mainFile}\`);
         const data = await res.json();
@@ -241,12 +306,41 @@ app.get('/', (req, res) => {
       } catch (e) {}
     }
 
+    async function fetchTerminalLogs() {
+      try {
+        const res = await fetch('/api/terminal/logs');
+        const data = await res.json();
+        const consoleEl = document.getElementById('terminalConsole');
+        consoleEl.textContent = data.logs.join('');
+        consoleEl.scrollTop = consoleEl.scrollHeight;
+      } catch (e) {}
+    }
+
+    async function runTerminalCommand() {
+      const input = document.getElementById('terminalInput');
+      const command = input.value.trim();
+      if (!command) return;
+
+      input.value = '';
+      await fetch('/api/terminal/exec', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ command })
+      });
+      fetchTerminalLogs();
+    }
+
     async function loadFiles() {
       const res = await fetch('/api/files');
       const data = await res.json();
       const listEl = document.getElementById('fileList');
       listEl.innerHTML = '';
-      
+      
+      if (data.files.length === 0) {
+        listEl.innerHTML = '<div class="text-xs text-slate-500 py-2">파일이 없습니다</div>';
+        return;
+      }
+
       data.files.forEach(f => {
         listEl.innerHTML += \`
           <div onclick="openFile('\${f}')" class="cursor-pointer p-2 rounded hover:bg-slate-800 text-slate-300 text-xs flex items-center gap-2 truncate">
@@ -254,6 +348,18 @@ app.get('/', (req, res) => {
           </div>
         \`;
       });
+
+      if (data.files.length > 0 && !currentEditingFile) {
+        openFile(data.files[0]);
+      }
+    }
+
+    function createNewFile() {
+      const name = prompt('새로 생성할 파일 이름을 입력하세요 (예: index.js):');
+      if (!name) return;
+      currentEditingFile = name.trim();
+      document.getElementById('currentFileName').value = currentEditingFile;
+      document.getElementById('fileEditor').value = '';
     }
 
     async function openFile(filename) {
@@ -265,15 +371,18 @@ app.get('/', (req, res) => {
     }
 
     async function saveFile() {
-      if (!currentEditingFile) return alert('선택된 파일이 없습니다.');
+      const filename = document.getElementById('currentFileName').value.trim();
+      if (!filename) return alert('파일 이름을 입력하세요.');
+      
       const content = document.getElementById('fileEditor').value;
       const res = await fetch('/api/file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filename: currentEditingFile, content })
+        body: JSON.stringify({ filename, content })
       });
       const data = await res.json();
       alert(data.message);
+      loadFiles();
     }
 
     async function loadEnv() {
@@ -281,7 +390,7 @@ app.get('/', (req, res) => {
       const data = await res.json();
       const container = document.getElementById('envContainer');
       container.innerHTML = '';
-      
+      
       Object.entries(data.env || {}).forEach(([k, v]) => {
         addEnvRow(k, v);
       });
@@ -351,4 +460,3 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
-
