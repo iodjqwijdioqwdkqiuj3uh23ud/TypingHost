@@ -103,7 +103,7 @@ app.get('/', (req, res) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NovaHost Dashboard</title>
+  <title>TypingHost Dashboard</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
@@ -114,7 +114,7 @@ app.get('/', (req, res) => {
   <header class="flex justify-between items-center mb-8 pb-4 border-b border-slate-800">
     <div>
       <h1 class="text-2xl md:text-3xl font-extrabold text-indigo-400 flex items-center gap-3">
-        <i class="fa-solid fa-server"></i> NovaHost Cloud
+        <i class="fa-solid fa-server"></i> TypingHost
       </h1>
       <p class="text-slate-400 text-sm mt-1">Discord Bot & Web Application Hosting Service</p>
     </div>
